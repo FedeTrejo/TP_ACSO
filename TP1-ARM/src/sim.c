@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include "shell.h"
 
+void decode_instruction();
 void decode_adds_extended(uint32_t instruction);
 void decode_adds_immediate(uint32_t instruction);
 void decode_subs_extended(uint32_t instruction);
@@ -21,9 +22,8 @@ void process_instruction()
      * values in NEXT_STATE. You can call mem_read_32() and mem_write_32() to
      * access memory. 
      * */
-
-    void decode_instruction();
-    void execute_instruction();
+    printf("Processing instruction\n");
+    decode_instruction();
 }
 
 
@@ -369,27 +369,31 @@ void decode_orr(uint32_t instruction){
     NEXT_STATE.PC = CURRENT_STATE.PC + 4;
 }
 
-void decode_instruction()
-{
-    /* decode the instruction located at CURRENT_STATE.PC. You have to read
-     * the instruction, decode it, and update the values in NEXT_STATE. */
+void decode_instruction(){
 
+    printf("Decoding instruction\n");
     uint32_t instruction = mem_read_32(CURRENT_STATE.PC);
+    printf("Instruction: 0x%X\n", instruction);
 
-    // Get opcode (31-21)
-    uint32_t opcode = (instruction >> 21) & 0x7FF;
+    // Posibles opcodes con diferentes tamaños según el formato de instrucción
+    uint32_t opcode_11 = (instruction >> 21) & 0x7FF;  // 11 bits (R, I, D, IW)
+    uint32_t opcode_8  = (instruction >> 24) & 0xFF;   // 8 bits (CB)
+    uint32_t opcode_6  = (instruction >> 26) & 0x3F;   // 6 bits (B)
 
-    // Compare opcode with instruction set
+    printf("Opcodes: 11-bit: 0x%X, 8-bit: 0x%X, 6-bit: 0x%X\n", opcode_11, opcode_8, opcode_6);
+
+    // Buscar el opcode en el conjunto de instrucciones
     for (int i = 0; i < INSTRUCTION_SET_SIZE; i++) {
-        if (INSTRUCTION_SET[i].opcode == opcode) {
-            // Call the corresponding function
+        if (INSTRUCTION_SET[i].opcode == opcode_11 || 
+            INSTRUCTION_SET[i].opcode == opcode_8  || 
+            INSTRUCTION_SET[i].opcode == opcode_6) {
+
+            printf("Match found\n");
             void (*decode_function)(uint32_t) = INSTRUCTION_SET[i].function;
             decode_function(instruction);
             return;
         }
     }
-
-    // If no match is found
-    printf("Unknown instruction with opcode: 0x%X\n", opcode);
+    printf("Unknown instruction\n");
 }
 
