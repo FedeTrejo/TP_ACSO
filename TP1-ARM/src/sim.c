@@ -10,8 +10,6 @@ void decode_adds_immediate(uint32_t instruction);
 void decode_subs_extended(uint32_t instruction);
 void decode_subs_immediate(uint32_t instruction);
 void decode_halt(uint32_t instruction);
-void decode_cmp_immediate(uint32_t instruction);
-void decode_cmp_extended(uint32_t instruction);
 void decode_ands(uint32_t instruction);
 void decode_eor(uint32_t instruction);
 void decode_orr(uint32_t instruction);
@@ -64,8 +62,6 @@ inst_info INSTRUCTION_SET[] = {
     {0b11101011000, &decode_subs_extended},
     {0b11110001, &decode_subs_immediate},
     {0b11010100010, &decode_halt},
-    {0b11110001, &decode_cmp_immediate}, /// NUNCA ENTRA A NINGUN CMP PORQUE ENTRA A SUBS (SE BORRAN???)
-    {0b11101011001, &decode_cmp_extended}, // ULTIMO DIGITO 0 ==> IGUAL A SUBS
     {0b11101010000, &decode_ands},
     {0b11001010000, &decode_eor},
     {0b10101010000, &decode_orr},
@@ -135,9 +131,12 @@ void decode_subs_extended(uint32_t instruction){
     NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
     NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
 
-    // Update the register
-    NEXT_STATE.REGS[rd] = result;
-
+    // Check if the register is not xzr
+    if (rd != 0b11111) {
+        // Update the register
+        NEXT_STATE.REGS[rd] = result;
+    }
+    
     // Update the PC
     NEXT_STATE.PC = CURRENT_STATE.PC + 4;
 }
@@ -223,8 +222,11 @@ void decode_subs_immediate(uint32_t instruction){
             NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
             NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
 
-            // Update the register
-            NEXT_STATE.REGS[rd] = result;
+            // Check if the register is not xzr
+            if (rd != 0b11111) {
+                // Update the register
+                NEXT_STATE.REGS[rd] = result;
+            }
 
             // Update the PC
             NEXT_STATE.PC = CURRENT_STATE.PC + 4;
@@ -244,8 +246,11 @@ void decode_subs_immediate(uint32_t instruction){
             NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
             NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
 
-            // Update the register
-            NEXT_STATE.REGS[rd] = result;
+            // Check if the register is not xzr
+            if (rd != 0b11111) {
+                // Update the register
+                NEXT_STATE.REGS[rd] = result;
+            }
 
             // Update the PC
             NEXT_STATE.PC = CURRENT_STATE.PC + 4;
@@ -265,82 +270,6 @@ void decode_halt(uint32_t instruction){
     RUN_BIT = 0;
     NEXT_STATE.PC = CURRENT_STATE.PC + 4;
 }   
-
-void decode_cmp_immediate(uint32_t instruction){
-    printf("Decoding cmp immediate\n");
-    // Get the register numbers
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    
-    // Get the immediate value
-    uint32_t imm12 = (instruction >> 10) & 0b111111111111;
-
-    // Check for shift
-    uint32_t shift = (instruction >> 22) & 0b11;
-    switch (shift) {
-        case 0x0: {
-            // Handle case shift 00
-            
-            // Substract the values
-            uint64_t result = CURRENT_STATE.REGS[rn] - imm12;
-
-            // Update the flags
-            NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-            NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    
-            break;
-        }
-
-        case 0x1: {
-            // Handle case 01
-            
-            // Shift the immediate value
-            uint64_t shifted_imm12 = imm12 << 12;
-
-            // Substract the values
-            uint64_t result = CURRENT_STATE.REGS[rn] - shifted_imm12;
-
-            // Update the flags
-            NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-            NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-            break;
-        }
-
-        default: {
-            // Handle unexpected cases
-            printf("Unexpected shift value\n");
-            break;
-        }
-    }
-}
-
-void decode_cmp_extended(uint32_t instruction){
-    // Get the register numbers
-    printf("Decoding cmp extended\n");
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
-
-    // Get imm3
-    uint32_t imm3 = (instruction >> 10) & 0b111;
-
-    // Get option
-    uint32_t option = (instruction >> 13) & 0b111;
-
-    // Subtract the values
-    uint64_t result = CURRENT_STATE.REGS[rn] - CURRENT_STATE.REGS[rm];
-
-    // Update the flags
-    NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-    // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-}
 
 void decode_ands(uint32_t instruction){
     // Get the register numbers
@@ -675,30 +604,6 @@ void decode_stur(uint32_t instruction){
     NEXT_STATE.PC = CURRENT_STATE.PC + 4;
 }
 
-// void decode_sturb(uint32_t instruction){
-//     // Get the register numbers
-//     uint32_t rt = (instruction >> 0) & 0b11111;
-//     uint32_t rn = (instruction >> 5) & 0b11111;
-
-//     // Get the immediate value
-//     uint32_t imm9 = (instruction >> 12) & 0b111111111;
-
-//     // Get the register value
-//     uint64_t rt_value = CURRENT_STATE.REGS[rt];
-
-//     // Get the address
-//     uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
-
-//     // Reduce the value to the first 8 bits
-//     rt_value = rt_value & 0b11111111;
-
-//     // Write the value to memory
-//     mem_write_32(address, rt_value);
-
-//     // Update the PC
-//     NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-// }
-
 void decode_sturb(uint32_t instruction){
     // Obtener los registros
     uint32_t rt = (instruction >> 0) & 0b11111;
@@ -730,30 +635,6 @@ void decode_sturb(uint32_t instruction){
     // Actualizar PC
     NEXT_STATE.PC = CURRENT_STATE.PC + 4;
 }
-
-// void decode_sturh(uint32_t instruction){
-//     // Get the register numbers
-//     uint32_t rt = (instruction >> 0) & 0b11111;
-//     uint32_t rn = (instruction >> 5) & 0b11111;
-
-//     // Get the immediate value
-//     uint32_t imm9 = (instruction >> 12) & 0b111111111;
-
-//     // Get the register value
-//     uint64_t rt_value = CURRENT_STATE.REGS[rt];
-
-//     // Get the address
-//     uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
-
-//     // Reduce the value to the first 16 bits
-//     rt_value = rt_value & 0b1111111111111111;
-
-//     // Write the value to memory
-//     mem_write_32(address, rt_value);
-
-//     // Update the PC
-//     NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-// }
 
 void decode_sturh(uint32_t instruction){
     // Obtener los registros
@@ -1058,5 +939,7 @@ void decode_instruction(){
         }
     }
     printf("Unknown instruction\n");
+    // Stop the simulation, segmenation fault
+    RUN_BIT = 0;
 }
 
