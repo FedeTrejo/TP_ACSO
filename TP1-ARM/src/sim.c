@@ -16,12 +16,7 @@ void decode_orr(uint32_t instruction);
 void decode_branch(uint32_t instruction);
 void decode_branch_to_register(uint32_t instruction);
 void decode_bcond(uint32_t instruction);
-void decode_beq(int32_t imm19);
-void decode_bne(int32_t imm19);
-void decode_bgt(int32_t imm19);
-void decode_blt(int32_t imm19);
-void decode_bge(int32_t imm19);
-void decode_ble(int32_t imm19);
+void decode_branch_conditional(int32_t imm19, int condition);
 void decode_ls(uint32_t instruction);
 void decode_lsl(uint32_t instruction);
 void decode_lsr(uint32_t instruction);
@@ -85,11 +80,58 @@ inst_info INSTRUCTION_SET[] = {
 
 #define INSTRUCTION_SET_SIZE (sizeof(INSTRUCTION_SET) / sizeof(INSTRUCTION_SET[0]))
 
+void get_registers_R(uint32_t instruction, uint32_t *rd, uint32_t *rn, uint32_t *rm) {
+    // Get the register numbers
+    *rd = (instruction >> 0) & 0b11111;
+    *rn = (instruction >> 5) & 0b11111;
+    *rm = (instruction >> 16) & 0b11111;
+}
+
+void get_operands_I(uint32_t instruction, uint32_t *rd, uint32_t *rn) {
+    // Get the register numbers
+    *rd = (instruction >> 0) & 0b11111;
+    *rn = (instruction >> 5) & 0b11111;
+} 
+
+void get_operands_D(uint32_t instruction, uint32_t *rt, uint32_t *rn, int32_t *imm9) {
+    // Get the register numbers
+    *rt = (instruction >> 0) & 0b11111;
+    *rn = (instruction >> 5) & 0b11111;
+
+    // Get the immediate value
+    *imm9 = (int32_t)((instruction >> 12) & 0b111111111);
+    if (*imm9 & 0x100) *imm9 |= 0xFFFFFF00; // Sign-extend
+}
+
+void get_operands_CB(uint32_t instruction, uint32_t *rt, uint32_t *imm19) {
+    // Get the register number
+    *rt = (instruction >> 0) & 0b11111;
+    // Get the immediate value
+    *imm19 = (instruction >> 5) & 0b1111111111111111111;
+}
+
+void update_flags(uint64_t result) {
+    // Update the flags
+    NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
+    NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
+}
+
+void update_program_counter(int32_t offset) {
+    // Update the program counter
+    printf("Updating PC from 0x%lX to 0x%X\n", CURRENT_STATE.PC,  offset);
+    printf("Updating PC from 0x%lX to 0x%lX\n", CURRENT_STATE.PC, CURRENT_STATE.PC + offset);
+    NEXT_STATE.PC = CURRENT_STATE.PC + offset;
+}
+
+void get_operands_IW(uint32_t instruction, uint32_t *rd) {
+    // Get the register number
+    *rd = (instruction >> 0) & 0b11111;
+}
+
 void decode_adds_extended(uint32_t instruction){
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
+    uint32_t rd, rn, rm;
+    get_registers_R(instruction, &rd, &rn, &rm);
 
     // Get imm3
     uint32_t imm3 = (instruction >> 10) & 0b111;
@@ -101,22 +143,19 @@ void decode_adds_extended(uint32_t instruction){
     uint64_t result = CURRENT_STATE.REGS[rn] + CURRENT_STATE.REGS[rm];
 
     // Update the flags
-    NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
+    update_flags(result);
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_subs_extended(uint32_t instruction){
-    printf("Decoding subs extended\n");
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
+    uint32_t rd, rn, rm;
+    get_registers_R(instruction, &rd, &rn, &rm);
 
     // Get imm3
     uint32_t imm3 = (instruction >> 10) & 0b111;
@@ -128,8 +167,7 @@ void decode_subs_extended(uint32_t instruction){
     uint64_t result = CURRENT_STATE.REGS[rn] - CURRENT_STATE.REGS[rm];
 
     // Update the flags
-    NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
+    update_flags(result);
 
     // Check if the register is not xzr
     if (rd != 0b11111) {
@@ -138,144 +176,91 @@ void decode_subs_extended(uint32_t instruction){
     }
     
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
-void decode_adds_immediate(uint32_t instruction){
+void decode_adds_immediate(uint32_t instruction) {
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    
+    uint32_t rd, rn;
+    get_operands_I(instruction, &rd, &rn);
+
     // Get the immediate value
     uint32_t imm12 = (instruction >> 10) & 0b111111111111;
 
     // Check for shift
     uint32_t shift = (instruction >> 22) & 0b11;
-    switch (shift) {
-        case 0x0: {
-            // Handle case shift 00
-            
-            // Add the values
-            uint64_t result = CURRENT_STATE.REGS[rn] + imm12;
 
-            // Update the flags
-            NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-            NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-            // Update the register
-            NEXT_STATE.REGS[rd] = result;
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    
-            break;
-        }
-        case 0x1: {
-            // Handle case 01
-            
-            // Shift the immediate value
-            uint64_t shifted_imm12 = imm12 << 12;
-
-            // Add the values
-            uint64_t result = CURRENT_STATE.REGS[rn] + shifted_imm12;
-
-            // Update the flags
-            NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-            NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-            // Update the register
-            NEXT_STATE.REGS[rd] = result;
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-            break;
-        }
-
-        default: {
-            // Handle unexpected cases
-            printf("Unexpected shift value\n");
-            break;
-        }
+    // Shift the immediate value if necessary
+    uint64_t shifted_imm12 = imm12; // Default: no shift
+    if (shift == 0x1) {
+        shifted_imm12 = imm12 << 12; // Apply shift
+    } else if (shift != 0x0) {
+        // Handle unexpected cases
+        printf("Unexpected shift value\n");
+        return;
     }
+
+    // Add the values
+    uint64_t result = CURRENT_STATE.REGS[rn] + shifted_imm12;
+
+    // Update the flags
+    update_flags(result);
+
+    // Update the register
+    NEXT_STATE.REGS[rd] = result;
+
+    // Update the PC
+    update_program_counter(4);
 }
 
-
-void decode_subs_immediate(uint32_t instruction){
-    printf("Decoding subs immediate\n");
+void decode_subs_immediate(uint32_t instruction) {
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    
+    uint32_t rd, rn;
+    get_operands_I(instruction, &rd, &rn);
+
     // Get the immediate value
     uint32_t imm12 = (instruction >> 10) & 0b111111111111;
 
     // Check for shift
     uint32_t shift = (instruction >> 22) & 0b11;
-    switch (shift) {
-        case 0x0: {
-            // Handle case shift 00
-            
-            // Substract the values
-            uint64_t result = CURRENT_STATE.REGS[rn] - imm12;
 
-            // Update the flags
-            NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-            NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-            // Check if the register is not xzr
-            if (rd != 0b11111) {
-                // Update the register
-                NEXT_STATE.REGS[rd] = result;
-            }
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    
-            break;
-        }
-        case 0x1: {
-            // Handle case 01
-            
-            // Shift the immediate value
-            uint64_t shifted_imm12 = imm12 << 12;
-
-            // Substract the values
-            uint64_t result = CURRENT_STATE.REGS[rn] - shifted_imm12;
-
-            // Update the flags
-            NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-            NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-            // Check if the register is not xzr
-            if (rd != 0b11111) {
-                // Update the register
-                NEXT_STATE.REGS[rd] = result;
-            }
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-            break;
-        }
-
-        default: {
-            // Handle unexpected cases
-            printf("Unexpected shift value\n");
-            break;
-        }
+    // Shift the immediate value if necessary
+    uint64_t shifted_imm12 = imm12; // Default: no shift
+    if (shift == 0x1) {
+        shifted_imm12 = imm12 << 12; // Apply shift
+    } else if (shift != 0x0) {
+        // Handle unexpected cases
+        printf("Unexpected shift value\n");
+        return;
     }
+
+    // Subtract the values
+    uint64_t result = CURRENT_STATE.REGS[rn] - shifted_imm12;
+
+    // Update the flags
+    update_flags(result);
+
+    // Check if the register is not xzr
+    if (rd != 0b11111) {
+        // Update the register
+        NEXT_STATE.REGS[rd] = result;
+    }
+
+    // Update the PC
+    update_program_counter(4);
 }
 
 void decode_halt(uint32_t instruction){
     // Set the run bit to zero
     RUN_BIT = 0;
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    // Update the PC
+    update_program_counter(4);
 }   
 
 void decode_ands(uint32_t instruction){
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
+    uint32_t rd, rn, rm;
+    get_registers_R(instruction, &rd, &rn, &rm);
 
     // Get imm6
     uint32_t imm6 = (instruction >> 10) & 0b111111;
@@ -284,22 +269,19 @@ void decode_ands(uint32_t instruction){
     uint64_t result = CURRENT_STATE.REGS[rn] & CURRENT_STATE.REGS[rm];
 
     // Update the flags
-    NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
+    update_flags(result);
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_eor(uint32_t instruction){
-    printf("Decoding eor\n");
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
+    uint32_t rd, rn, rm;
+    get_registers_R(instruction, &rd, &rn, &rm);
 
     // Get imm6
     uint32_t imm6 = (instruction >> 10) & 0b111111;
@@ -307,22 +289,17 @@ void decode_eor(uint32_t instruction){
     // Eor the values
     uint64_t result = CURRENT_STATE.REGS[rn] ^ CURRENT_STATE.REGS[rm];
 
-    // // Update the flags
-    // NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    // NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
     // Update the register
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_orr(uint32_t instruction){
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
+    uint32_t rd, rn, rm;
+    get_registers_R(instruction, &rd, &rn, &rm);
 
     // Get imm6
     uint32_t imm6 = (instruction >> 10) & 0b111111;
@@ -330,15 +307,11 @@ void decode_orr(uint32_t instruction){
     // Or the values
     uint64_t result = CURRENT_STATE.REGS[rn] | CURRENT_STATE.REGS[rm];
 
-    // // Update the flags
-    // NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    // NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
     // Update the register
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_branch(uint32_t instruction) {
@@ -355,7 +328,7 @@ void decode_branch(uint32_t instruction) {
     int32_t offset = imm26 * 4;
     
     // Update PC - the target is PC-relative
-    NEXT_STATE.PC = CURRENT_STATE.PC + offset;
+    update_program_counter(offset);
 }
 
 void decode_branch_to_register(uint32_t instruction) {
@@ -375,35 +348,35 @@ void decode_bcond(uint32_t instruction){
 
     // Extract the 19-bit immediate from the instruction 
     int32_t imm19 = (instruction >> 5) & 0b1111111111111111111;
-
      
     switch (cond)
     {
     case 0b0000: // BEQ
-        decode_beq(imm19);
+        decode_branch_conditional(imm19, CURRENT_STATE.FLAG_Z == 1);
         break;
     case 0b0001: // BNE
-        decode_bne(imm19);
+        decode_branch_conditional(imm19, CURRENT_STATE.FLAG_Z == 0);
         break;
     case 0b1100: // BGT
-        decode_bgt(imm19);
+        decode_branch_conditional(imm19, CURRENT_STATE.FLAG_N == 0 && CURRENT_STATE.FLAG_Z == 0);
         break;
     case 0b1011: // BLT
-        decode_blt(imm19);
+        decode_branch_conditional(imm19, CURRENT_STATE.FLAG_N == 1);
         break;
     case 0b1010: // BGE
-        decode_bge(imm19);
+        decode_branch_conditional(imm19, CURRENT_STATE.FLAG_N == 0);
         break;
     case 0b1101: // BLE
-        decode_ble(imm19);
+        decode_branch_conditional(imm19, CURRENT_STATE.FLAG_N == 1 || CURRENT_STATE.FLAG_Z == 1);
         break;
     default:
         break;
     }
 }
 
-void decode_beq(int32_t imm19) {
-    if (CURRENT_STATE.FLAG_Z == 1) {
+void decode_branch_conditional(int32_t imm19, int condition) {
+    // Check if the condition is True
+    if (condition) {
         // Sign-extend from 19 bits to 32 bits
         if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
             imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
@@ -414,113 +387,17 @@ void decode_beq(int32_t imm19) {
         int32_t offset = imm19 * 4;
         
         // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    }
-}
-
-void decode_bne(int32_t imm19) {
-    if (CURRENT_STATE.FLAG_Z == 0) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
-        }
-        
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
-        int32_t offset = imm19 * 4;
-        
-        // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    }
-}
-
-void decode_bgt(int32_t imm19) {
-    if (CURRENT_STATE.FLAG_N == 0 && CURRENT_STATE.FLAG_Z == 0) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
-        }
-        
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
-        int32_t offset = imm19 * 4;
-        
-        // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    }
-}
-
-void decode_blt(int32_t imm19) {
-    if (CURRENT_STATE.FLAG_N == 1) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
-        }
-        
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
-        int32_t offset = imm19 * 4;
-        
-        // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    }
-}
-
-void decode_bge(int32_t imm19) {
-    if (CURRENT_STATE.FLAG_N == 0) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
-        }
-        
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
-        int32_t offset = imm19 * 4;
-        
-        // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    }
-}
-
-void decode_ble(int32_t imm19) {
-    if (CURRENT_STATE.FLAG_N == 1 || CURRENT_STATE.FLAG_Z == 1) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
-        }
-        
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
-        int32_t offset = imm19 * 4;
-        
-        // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+        update_program_counter(offset);
+    } else {
+        // Update the PC
+        update_program_counter(4);
     }
 }
 
 void decode_ls(uint32_t instruction){
     // Get the imms [15:10]
     uint32_t imms = (instruction >> 10) & 0b111111;
-    switch (imms)
-    {
+    switch (imms){
     case 0b111111:
         decode_lsr(instruction);
         break;
@@ -531,62 +408,52 @@ void decode_ls(uint32_t instruction){
 }
 
 void decode_lsl(uint32_t instruction){
-    // Obtener los registros destino y origen
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
+    // Get the register numbers
+    uint32_t rd, rn;
+    get_operands_I(instruction, &rd, &rn);
 
-    // Extraer los campos immr
+    // Get the immr
     uint32_t immr = (instruction >> 16) & 0b111111;
     
-    // Calcular el shift amount correcto
+    // Get the shift amount
     uint32_t shift_amount = (64 - immr) % 64;
 
-    // Realizar el desplazamiento lógico a la izquierda
-    uint64_t result = CURRENT_STATE.REGS[rn] << shift_amount;
-
-    // // Actualizar los flags
-    // NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    // NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-
-    // Guardar el resultado en el registro destino
-    NEXT_STATE.REGS[rd] = result;
-
-    // Avanzar el PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-}
-
-void decode_lsr(uint32_t instruction){
-    // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-
-    // Extraer los campos immr
-    uint32_t immr = (instruction >> 16) & 0b111111;
-
-    // Calcular el shift amount correcto
-    uint32_t shift_amount = immr;
-
     // Shift the value
-    uint64_t result = CURRENT_STATE.REGS[rn] >> shift_amount;
-
-    // // Update the flags
-    // NEXT_STATE.FLAG_N = (result >> 63) & 0b1;
-    // NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
+    uint64_t result = CURRENT_STATE.REGS[rn] << shift_amount;
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
+}
+
+void decode_lsr(uint32_t instruction){
+    // Get the register numbers
+    uint32_t rd, rn;
+    get_operands_I(instruction, &rd, &rn);
+
+    // Get the immr
+    uint32_t immr = (instruction >> 16) & 0b111111;
+
+    // Get the shift amount
+    uint32_t shift_amount = immr;
+
+    // Shift the value
+    uint64_t result = CURRENT_STATE.REGS[rn] >> shift_amount;
+
+    // Update the register
+    NEXT_STATE.REGS[rd] = result;
+
+    // Update the PC
+    update_program_counter(4);
 }
 
 void decode_stur(uint32_t instruction){
     // Get the register numbers
-    uint32_t rt = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-
-    // Get the immediate value
-    uint32_t imm9 = (instruction >> 12) & 0b111111111;
+    uint32_t rt, rn;
+    int32_t imm9;
+    get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Get the register value
     uint64_t rt_value = CURRENT_STATE.REGS[rt];
@@ -601,17 +468,14 @@ void decode_stur(uint32_t instruction){
     mem_write_32(address + 4, (uint32_t)(rt_value >> 32));
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_sturb(uint32_t instruction){
     // Obtener los registros
-    uint32_t rt = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-
-    // Obtener el inmediato
-    int32_t imm9 = (int32_t)((instruction >> 12) & 0b111111111); // Signo extendido
-    if (imm9 & 0x100) imm9 |= 0xFFFFFF00; // Extender signo si el bit más alto está en 1
+    uint32_t rt, rn;
+    int32_t imm9;
+    get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Obtener el valor del registro Rt (solo los 8 bits inferiores)
     uint8_t byte_value = (uint8_t)(CURRENT_STATE.REGS[rt] & 0xFF);
@@ -633,17 +497,14 @@ void decode_sturb(uint32_t instruction){
     mem_write_32(address & ~0b11, word);
 
     // Actualizar PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_sturh(uint32_t instruction){
     // Obtener los registros
-    uint32_t rt = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-
-    // Obtener el inmediato
-    int32_t imm9 = (int32_t)((instruction >> 12) & 0b111111111);
-    if (imm9 & 0x100) imm9 |= 0xFFFFFF00; // Extender signo si el bit más alto está en 1
+    uint32_t rt, rn;
+    int32_t imm9;
+    get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Obtener el valor del registro Rt (solo los 16 bits inferiores)
     uint16_t half_value = (uint16_t)(CURRENT_STATE.REGS[rt] & 0xFFFF);
@@ -665,17 +526,15 @@ void decode_sturh(uint32_t instruction){
     mem_write_32(address & ~0b11, word);
 
     // Actualizar PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 
 void decode_ldur(uint32_t instruction){
     // Get the register numbers
-    uint32_t rt = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-
-    // Get the immediate value
-    uint32_t imm9 = (instruction >> 12) & 0b111111111;
+    uint32_t rt, rn;
+    int32_t imm9;
+    get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Get the address
     uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
@@ -691,16 +550,14 @@ void decode_ldur(uint32_t instruction){
     NEXT_STATE.REGS[rt] = full_value;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_ldurb(uint32_t instruction){
     // Get the register numbers
-    uint32_t rt = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-
-    // Get the immediate value
-    uint32_t imm9 = (instruction >> 12) & 0b111111111;
+    uint32_t rt, rn;
+    int32_t imm9;
+    get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Get the address
     uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
@@ -715,16 +572,14 @@ void decode_ldurb(uint32_t instruction){
     NEXT_STATE.REGS[rt] = value;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_ldurh(uint32_t instruction){
     // Get the register numbers
-    uint32_t rt = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-
-    // Get the immediate value
-    uint32_t imm9 = (instruction >> 12) & 0b111111111;
+    uint32_t rt, rn;
+    int32_t imm9;
+    get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Get the address
     uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
@@ -739,12 +594,13 @@ void decode_ldurh(uint32_t instruction){
     NEXT_STATE.REGS[rt] = value;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_movz(uint32_t instruction){
     // Get the register number
-    uint32_t rd = (instruction >> 0) & 0b11111;
+    uint32_t rd;
+    get_operands_IW(instruction, &rd);
 
     // Get the immediate value
     uint32_t imm16 = (instruction >> 5) & 0b1111111111111111;
@@ -753,14 +609,13 @@ void decode_movz(uint32_t instruction){
     NEXT_STATE.REGS[rd] = imm16;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_add_extended(uint32_t instruction){
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
+    uint32_t rd, rn, rm;
+    get_registers_R(instruction, &rd, &rn, &rm);
 
     // Get imm3
     uint32_t imm3 = (instruction >> 10) & 0b111;
@@ -775,63 +630,54 @@ void decode_add_extended(uint32_t instruction){
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_add_immediate(uint32_t instruction){
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    
+    uint32_t rd, rn;
+    get_operands_I(instruction, &rd, &rn);
+
     // Get the immediate value
     uint32_t imm12 = (instruction >> 10) & 0b111111111111;
 
     // Check for shift
     uint32_t shift = (instruction >> 22) & 0b11;
+
+    uint64_t result;
+
     switch (shift) {
         case 0b00: {
-            // Handle case shift 00
-            
             // Add the values
             uint64_t result = CURRENT_STATE.REGS[rn] + imm12;
-
-            // Update the register
-            NEXT_STATE.REGS[rd] = result;
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
             break;
         }
         case 0b01: {
-            // Handle case 01
-            
             // Shift the immediate value
             uint64_t shifted_imm12 = imm12 << 12;
 
             // Add the values
             uint64_t result = CURRENT_STATE.REGS[rn] + shifted_imm12;
-
-            // Update the register
-            NEXT_STATE.REGS[rd] = result;
-
-            // Update the PC
-            NEXT_STATE.PC = CURRENT_STATE.PC + 4;
             break;
         }
 
         default: {
             // Handle unexpected cases
             printf("Unexpected shift value\n");
-            break;
+            return;
         }
     }
+    // Update the register
+    NEXT_STATE.REGS[rd] = result;
+
+    // Update the PC
+    update_program_counter(4);
 }
 
 void decode_mul(uint32_t instruction){
     // Get the register numbers
-    uint32_t rd = (instruction >> 0) & 0b11111;
-    uint32_t rn = (instruction >> 5) & 0b11111;
-    uint32_t rm = (instruction >> 16) & 0b11111;
+    uint32_t rd, rn, rm;
+    get_registers_R(instruction, &rd, &rn, &rm);
 
     // Multiply the values
     uint64_t result = CURRENT_STATE.REGS[rn] * CURRENT_STATE.REGS[rm];
@@ -840,59 +686,25 @@ void decode_mul(uint32_t instruction){
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    update_program_counter(4);
 }
 
 void decode_cbz(uint32_t instruction){
     // Get the register number
-    uint32_t rt = (instruction >> 5) & 0b11111;
-
-    // Get the immediate value
-    uint32_t imm19 = (instruction >> 5) & 0b1111111111111111111;
-
+    uint32_t rt, imm19;
+    get_operands_CB(instruction, &rt, &imm19);
+    
     // Check if the register is zero
-    if (CURRENT_STATE.REGS[rt] == 0) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
-        }
-        
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
-        int32_t offset = imm19 * 4;
-        
-        // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    }
+    decode_branch_conditional(imm19, CURRENT_STATE.REGS[rt] == 0);
 }
 
 void decode_cbnz(uint32_t instruction){
     // Get the register number
-    uint32_t rt = (instruction >> 5) & 0b11111;
+    uint32_t rt, imm19;
+    get_operands_CB(instruction, &rt, &imm19);
 
-    // Get the immediate value
-    uint32_t imm19 = (instruction >> 5) & 0b1111111111111111111;
-
-    // Check if the register is zero
-    if (CURRENT_STATE.REGS[rt] != 0) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
-        }
-        
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
-        int32_t offset = imm19 * 4;
-        
-        // Update PC - the target is PC-relative
-        NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-    }
-    else {
-        NEXT_STATE.PC = CURRENT_STATE.PC + 4;
-    }
+    // Check if the register is not zero
+    decode_branch_conditional(imm19, CURRENT_STATE.REGS[rt] != 0);
 }
 
 void decode_instruction(){
@@ -942,4 +754,3 @@ void decode_instruction(){
     // Stop the simulation, segmenation fault
     RUN_BIT = 0;
 }
-
