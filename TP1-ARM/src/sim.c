@@ -4,6 +4,10 @@
 #include <unistd.h>
 #include "shell.h"
 
+// No se implementa la funcion CMP dado que el OPCODE es el mismo que el de SUBS,
+// por lo que nunca entraria a tal funcion. Es por eso que en SUBS se verifica que
+// Rd != 0b11111, para no escribir en el registro xzr.
+
 void decode_instruction();
 void decode_adds_extended(uint32_t instruction);
 void decode_adds_immediate(uint32_t instruction);
@@ -71,7 +75,7 @@ inst_info INSTRUCTION_SET[] = {
     {0b01111000010, &decode_ldurh},
     {0b00111000010, &decode_ldurb},
     {0b11010010100, &decode_movz},
-    {0b10001011001, &decode_add_extended},
+    {0b10001011000, &decode_add_extended}, /// CAMBIAMOS EL ULTIMO BIT A 0 (XQ SINO NO ENTRA)
     {0b10010001, &decode_add_immediate},
     {0b10011011000, &decode_mul},
     {0b10110100, &decode_cbz},
@@ -118,8 +122,6 @@ void update_flags(uint64_t result) {
 
 void update_program_counter(int32_t offset) {
     // Update the program counter
-    printf("Updating PC from 0x%lX to 0x%X\n", CURRENT_STATE.PC,  offset);
-    printf("Updating PC from 0x%lX to 0x%lX\n", CURRENT_STATE.PC, CURRENT_STATE.PC + offset);
     NEXT_STATE.PC = CURRENT_STATE.PC + offset;
 }
 
@@ -140,7 +142,7 @@ void decode_adds_extended(uint32_t instruction){
     uint32_t option = (instruction >> 13) & 0b111;
 
     // Add the values
-    uint64_t result = CURRENT_STATE.REGS[rn] + CURRENT_STATE.REGS[rm];
+    int64_t result = CURRENT_STATE.REGS[rn] + CURRENT_STATE.REGS[rm];
 
     // Update the flags
     update_flags(result);
@@ -164,7 +166,7 @@ void decode_subs_extended(uint32_t instruction){
     uint32_t option = (instruction >> 13) & 0b111;
 
     // Subtract the values
-    uint64_t result = CURRENT_STATE.REGS[rn] - CURRENT_STATE.REGS[rm];
+    int64_t result = CURRENT_STATE.REGS[rn] - CURRENT_STATE.REGS[rm];
 
     // Update the flags
     update_flags(result);
@@ -201,7 +203,7 @@ void decode_adds_immediate(uint32_t instruction) {
     }
 
     // Add the values
-    uint64_t result = CURRENT_STATE.REGS[rn] + shifted_imm12;
+    int64_t result = CURRENT_STATE.REGS[rn] + shifted_imm12;
 
     // Update the flags
     update_flags(result);
@@ -235,7 +237,7 @@ void decode_subs_immediate(uint32_t instruction) {
     }
 
     // Subtract the values
-    uint64_t result = CURRENT_STATE.REGS[rn] - shifted_imm12;
+    int64_t result = CURRENT_STATE.REGS[rn] - shifted_imm12;
 
     // Update the flags
     update_flags(result);
@@ -266,7 +268,7 @@ void decode_ands(uint32_t instruction){
     uint32_t imm6 = (instruction >> 10) & 0b111111;
 
     // And the values
-    uint64_t result = CURRENT_STATE.REGS[rn] & CURRENT_STATE.REGS[rm];
+    int64_t result = CURRENT_STATE.REGS[rn] & CURRENT_STATE.REGS[rm];
 
     // Update the flags
     update_flags(result);
@@ -287,7 +289,7 @@ void decode_eor(uint32_t instruction){
     uint32_t imm6 = (instruction >> 10) & 0b111111;
 
     // Eor the values
-    uint64_t result = CURRENT_STATE.REGS[rn] ^ CURRENT_STATE.REGS[rm];
+    int64_t result = CURRENT_STATE.REGS[rn] ^ CURRENT_STATE.REGS[rm];
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
@@ -305,7 +307,7 @@ void decode_orr(uint32_t instruction){
     uint32_t imm6 = (instruction >> 10) & 0b111111;
 
     // Or the values
-    uint64_t result = CURRENT_STATE.REGS[rn] | CURRENT_STATE.REGS[rm];
+    int64_t result = CURRENT_STATE.REGS[rn] | CURRENT_STATE.REGS[rm];
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
@@ -336,7 +338,7 @@ void decode_branch_to_register(uint32_t instruction) {
     uint32_t rn = (instruction >> 5) & 0b11111;
 
     // Get the register value
-    uint64_t target = CURRENT_STATE.REGS[rn];
+    int64_t target = CURRENT_STATE.REGS[rn];
 
     // Update PC - the target is PC-relative
     NEXT_STATE.PC = target;
@@ -394,16 +396,15 @@ void decode_branch_conditional(int32_t imm19, int condition) {
     }
 }
 
-void decode_ls(uint32_t instruction){
+void decode_ls(uint32_t instruction) {
     // Get the imms [15:10]
     uint32_t imms = (instruction >> 10) & 0b111111;
-    switch (imms){
-    case 0b111111:
-        decode_lsr(instruction);
-        break;
-    default:
-        decode_lsl(instruction);
-        break;
+
+    // Check the value of imms and call the appropriate function
+    if (imms == 0b111111) {
+        decode_lsr(instruction); // Logical Shift Right
+    } else {
+        decode_lsl(instruction); // Logical Shift Left
     }
 }
 
@@ -419,7 +420,7 @@ void decode_lsl(uint32_t instruction){
     uint32_t shift_amount = (64 - immr) % 64;
 
     // Shift the value
-    uint64_t result = CURRENT_STATE.REGS[rn] << shift_amount;
+    int64_t result = CURRENT_STATE.REGS[rn] << shift_amount;
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
@@ -440,7 +441,7 @@ void decode_lsr(uint32_t instruction){
     uint32_t shift_amount = immr;
 
     // Shift the value
-    uint64_t result = CURRENT_STATE.REGS[rn] >> shift_amount;
+    int64_t result = CURRENT_STATE.REGS[rn] >> shift_amount;
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
@@ -459,7 +460,7 @@ void decode_stur(uint32_t instruction){
     uint64_t rt_value = CURRENT_STATE.REGS[rt];
 
     // Get the address
-    uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
+    int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
     // Escribir los 32 bits inferiores
     mem_write_32(address, (uint32_t)(rt_value & 0xFFFFFFFF));
@@ -481,7 +482,7 @@ void decode_sturb(uint32_t instruction){
     uint8_t byte_value = (uint8_t)(CURRENT_STATE.REGS[rt] & 0xFF);
 
     // Calcular la dirección
-    uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
+    int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
     // Leer los 32 bits actuales de memoria
     uint32_t word = mem_read_32(address & ~0b11); // Alinear dirección a 4 bytes
@@ -510,7 +511,7 @@ void decode_sturh(uint32_t instruction){
     uint16_t half_value = (uint16_t)(CURRENT_STATE.REGS[rt] & 0xFFFF);
 
     // Calcular la dirección
-    uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
+    int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
     // Leer los 32 bits actuales de memoria
     uint32_t word = mem_read_32(address & ~0b11); // Alinear dirección a 4 bytes
@@ -529,7 +530,6 @@ void decode_sturh(uint32_t instruction){
     update_program_counter(4);
 }
 
-
 void decode_ldur(uint32_t instruction){
     // Get the register numbers
     uint32_t rt, rn;
@@ -537,7 +537,7 @@ void decode_ldur(uint32_t instruction){
     get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Get the address
-    uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
+    int64_t address = CURRENT_STATE.REGS[rn] + imm9;
     
     // Para registros X (64 bits), necesitamos leer dos palabras de 32 bits
     uint32_t value_low = mem_read_32(address);
@@ -560,7 +560,7 @@ void decode_ldurb(uint32_t instruction){
     get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Get the address
-    uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
+    int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
     // Read the value from memory
     uint32_t value = mem_read_32(address);
@@ -582,7 +582,7 @@ void decode_ldurh(uint32_t instruction){
     get_operands_D(instruction, &rt, &rn, &imm9);
 
     // Get the address
-    uint64_t address = CURRENT_STATE.REGS[rn] + imm9;
+    int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
     // Read the value from memory
     uint32_t value = mem_read_32(address);
@@ -603,7 +603,7 @@ void decode_movz(uint32_t instruction){
     get_operands_IW(instruction, &rd);
 
     // Get the immediate value
-    uint32_t imm16 = (instruction >> 5) & 0b1111111111111111;
+    int32_t imm16 = (instruction >> 5) & 0b1111111111111111;
 
     // Update the register
     NEXT_STATE.REGS[rd] = imm16;
@@ -624,7 +624,7 @@ void decode_add_extended(uint32_t instruction){
     uint32_t option = (instruction >> 13) & 0b111;
 
     // Add the values
-    uint64_t result = CURRENT_STATE.REGS[rn] + CURRENT_STATE.REGS[rm];
+    int64_t result = CURRENT_STATE.REGS[rn] + CURRENT_STATE.REGS[rm];
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
@@ -633,45 +633,35 @@ void decode_add_extended(uint32_t instruction){
     update_program_counter(4);
 }
 
-void decode_add_immediate(uint32_t instruction){
+void decode_add_immediate(uint32_t instruction) {
     // Get the register numbers
     uint32_t rd, rn;
     get_operands_I(instruction, &rd, &rn);
-
+    
     // Get the immediate value
-    uint32_t imm12 = (instruction >> 10) & 0b111111111111;
+    int32_t imm12 = (instruction >> 10) & 0b111111111111;
 
-    // Check for shift
+    // Get shift
     uint32_t shift = (instruction >> 22) & 0b11;
 
-    uint64_t result;
-
-    switch (shift) {
-        case 0b00: {
-            // Add the values
-            uint64_t result = CURRENT_STATE.REGS[rn] + imm12;
-            break;
-        }
-        case 0b01: {
-            // Shift the immediate value
-            uint64_t shifted_imm12 = imm12 << 12;
-
-            // Add the values
-            uint64_t result = CURRENT_STATE.REGS[rn] + shifted_imm12;
-            break;
-        }
-
-        default: {
-            // Handle unexpected cases
-            printf("Unexpected shift value\n");
-            return;
-        }
+    // Check for shift and calculate the shifted immediate value
+    int64_t shifted_imm12 = imm12; // Default: no shift
+    if (shift == 0b01) {
+        shifted_imm12 = imm12 << 12; // Apply shift
+    } else if (shift != 0b00) {
+        // Handle unexpected cases
+        printf("Unexpected shift value\n");
+        return;
     }
+
+    // Add the values
+    int64_t result = CURRENT_STATE.REGS[rn] + shifted_imm12;
+
     // Update the register
     NEXT_STATE.REGS[rd] = result;
 
     // Update the PC
-    update_program_counter(4);
+    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
 }
 
 void decode_mul(uint32_t instruction){
@@ -680,7 +670,7 @@ void decode_mul(uint32_t instruction){
     get_registers_R(instruction, &rd, &rn, &rm);
 
     // Multiply the values
-    uint64_t result = CURRENT_STATE.REGS[rn] * CURRENT_STATE.REGS[rm];
+    int64_t result = CURRENT_STATE.REGS[rn] * CURRENT_STATE.REGS[rm];
 
     // Update the register
     NEXT_STATE.REGS[rd] = result;
@@ -719,38 +709,34 @@ void decode_instruction(){
     uint32_t opcode_8  = (instruction >> 24) & 0xFF;   // 8 bits (CB)
     uint32_t opcode_6  = (instruction >> 26) & 0x3F;   // 6 bits (B)
 
-    printf("Opcode 11: 0x%X\n", opcode_11);
-    printf("Opcode 10: 0x%X\n", opcode_10);
-    printf("Opcode 8: 0x%X\n", opcode_8);
-    printf("Opcode 6: 0x%X\n", opcode_6);
     // Buscar el opcode en el conjunto de instrucciones
     for (int i = 0; i < INSTRUCTION_SET_SIZE; i++) {
         if (INSTRUCTION_SET[i].opcode == opcode_11) { 
-            printf("Match found\n");
-            void (*decode_function)(uint32_t) = INSTRUCTION_SET[i].function;
-            decode_function(instruction);
-            return;
-        }
-        else if (INSTRUCTION_SET[i].opcode == opcode_8) {
-            printf("Match found\n");
+            printf("Match found with opcode: 0x%X\n", opcode_11);
             void (*decode_function)(uint32_t) = INSTRUCTION_SET[i].function;
             decode_function(instruction);
             return;
         }
         else if (INSTRUCTION_SET[i].opcode == opcode_10) {
-            printf("Match found\n");
+            printf("Match found with opcode: 0x%X\n", opcode_10);
+            void (*decode_function)(uint32_t) = INSTRUCTION_SET[i].function;
+            decode_function(instruction);
+            return;
+        }
+        else if (INSTRUCTION_SET[i].opcode == opcode_8) {
+            printf("Match found with opcode: 0x%X\n", opcode_8);
             void (*decode_function)(uint32_t) = INSTRUCTION_SET[i].function;
             decode_function(instruction);
             return;
         }
         else if (INSTRUCTION_SET[i].opcode == opcode_6) {
-            printf("Match found\n");
+            printf("Match found with opcode: 0x%X\n", opcode_6);
             void (*decode_function)(uint32_t) = INSTRUCTION_SET[i].function;
             decode_function(instruction);
             return;
         }
     }
-    printf("Unknown instruction\n");
-    // Stop the simulation, segmenation fault
+    printf("Unknown instruction, segmentation fault\n");
+    // Stop the simulation, segmentation fault
     RUN_BIT = 0;
 }
