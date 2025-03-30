@@ -8,7 +8,6 @@
 // por lo que nunca entraria a tal funcion. Es por eso que en SUBS se verifica que
 // Rd != 0b11111, para no escribir en el registro xzr.
 
-void decode_instruction();
 void decode_adds_extended(uint32_t instruction);
 void decode_adds_immediate(uint32_t instruction);
 void decode_subs_extended(uint32_t instruction);
@@ -37,17 +36,6 @@ void decode_mul(uint32_t instruction);
 void decode_cbz(uint32_t instruction);
 void decode_cbnz(uint32_t instruction);
 
-
-void process_instruction()
-{
-    /* execute one instruction here. You should use CURRENT_STATE and modify
-     * values in NEXT_STATE. You can call mem_read_32() and mem_write_32() to
-     * access memory. 
-     * */
-    printf("Processing instruction\n");
-    decode_instruction();
-}
-
 typedef struct instruction_information
 {
     /* data */
@@ -75,7 +63,7 @@ inst_info INSTRUCTION_SET[] = {
     {0b01111000010, &decode_ldurh},
     {0b00111000010, &decode_ldurb},
     {0b11010010100, &decode_movz},
-    {0b10001011000, &decode_add_extended}, /// CAMBIAMOS EL ULTIMO BIT A 0 (XQ SINO NO ENTRA)
+    {0b10001011000, &decode_add_extended},
     {0b10010001, &decode_add_immediate},
     {0b10011011000, &decode_mul},
     {0b10110100, &decode_cbz},
@@ -85,31 +73,32 @@ inst_info INSTRUCTION_SET[] = {
 #define INSTRUCTION_SET_SIZE (sizeof(INSTRUCTION_SET) / sizeof(INSTRUCTION_SET[0]))
 
 void get_registers_R(uint32_t instruction, uint32_t *rd, uint32_t *rn, uint32_t *rm) {
-    // Get the register numbers
+    // Get the register numbers for R-type instructions
     *rd = (instruction >> 0) & 0b11111;
     *rn = (instruction >> 5) & 0b11111;
     *rm = (instruction >> 16) & 0b11111;
 }
 
-void get_operands_I(uint32_t instruction, uint32_t *rd, uint32_t *rn) {
-    // Get the register numbers
+void get_registers_I(uint32_t instruction, uint32_t *rd, uint32_t *rn) {
+    // Get the register numbers for I-type instructions
     *rd = (instruction >> 0) & 0b11111;
     *rn = (instruction >> 5) & 0b11111;
 } 
 
 void get_operands_D(uint32_t instruction, uint32_t *rt, uint32_t *rn, int32_t *imm9) {
-    // Get the register numbers
+    // Get the register numbers 
     *rt = (instruction >> 0) & 0b11111;
     *rn = (instruction >> 5) & 0b11111;
 
     // Get the immediate value
     *imm9 = (int32_t)((instruction >> 12) & 0b111111111);
-    if (*imm9 & 0x100) *imm9 |= 0xFFFFFF00; // Sign-extend
+    if (*imm9 & 0b100000000) *imm9 |= 0b11111111111111111111111100000000; // Sign-extend
 }
 
 void get_operands_CB(uint32_t instruction, uint32_t *rt, uint32_t *imm19) {
     // Get the register number
     *rt = (instruction >> 0) & 0b11111;
+
     // Get the immediate value
     *imm19 = (instruction >> 5) & 0b1111111111111111111;
 }
@@ -123,11 +112,6 @@ void update_flags(uint64_t result) {
 void update_program_counter(int32_t offset) {
     // Update the program counter
     NEXT_STATE.PC = CURRENT_STATE.PC + offset;
-}
-
-void get_operands_IW(uint32_t instruction, uint32_t *rd) {
-    // Get the register number
-    *rd = (instruction >> 0) & 0b11111;
 }
 
 void decode_adds_extended(uint32_t instruction){
@@ -184,7 +168,7 @@ void decode_subs_extended(uint32_t instruction){
 void decode_adds_immediate(uint32_t instruction) {
     // Get the register numbers
     uint32_t rd, rn;
-    get_operands_I(instruction, &rd, &rn);
+    get_registers_I(instruction, &rd, &rn);
 
     // Get the immediate value
     uint32_t imm12 = (instruction >> 10) & 0b111111111111;
@@ -194,9 +178,9 @@ void decode_adds_immediate(uint32_t instruction) {
 
     // Shift the immediate value if necessary
     uint64_t shifted_imm12 = imm12; // Default: no shift
-    if (shift == 0x1) {
+    if (shift == 0b01) {
         shifted_imm12 = imm12 << 12; // Apply shift
-    } else if (shift != 0x0) {
+    } else if (shift != 0b00) {
         // Handle unexpected cases
         printf("Unexpected shift value\n");
         return;
@@ -218,7 +202,7 @@ void decode_adds_immediate(uint32_t instruction) {
 void decode_subs_immediate(uint32_t instruction) {
     // Get the register numbers
     uint32_t rd, rn;
-    get_operands_I(instruction, &rd, &rn);
+    get_registers_I(instruction, &rd, &rn);
 
     // Get the immediate value
     uint32_t imm12 = (instruction >> 10) & 0b111111111111;
@@ -228,9 +212,9 @@ void decode_subs_immediate(uint32_t instruction) {
 
     // Shift the immediate value if necessary
     uint64_t shifted_imm12 = imm12; // Default: no shift
-    if (shift == 0x1) {
+    if (shift == 0b01) {
         shifted_imm12 = imm12 << 12; // Apply shift
-    } else if (shift != 0x0) {
+    } else if (shift != 0b00) {
         // Handle unexpected cases
         printf("Unexpected shift value\n");
         return;
@@ -255,6 +239,7 @@ void decode_subs_immediate(uint32_t instruction) {
 void decode_halt(uint32_t instruction){
     // Set the run bit to zero
     RUN_BIT = 0;
+
     // Update the PC
     update_program_counter(4);
 }   
@@ -318,18 +303,17 @@ void decode_orr(uint32_t instruction){
 
 void decode_branch(uint32_t instruction) {
     // Extract the 26-bit immediate from the instruction
-    int32_t imm26 = instruction & 0b11111111111111111111111111; // Get bits [25:0]
+    int32_t imm26 = instruction & 0b11111111111111111111111111;
     
-    // Sign-extend from 26 bits to 32 bits
-    if (imm26 & 0b1000000000000000000000000) { // Check if bit 25 is set (negative number)
-        imm26 |= 0b11111111111111111111111111000000; // Extend with 1's
+    // Sign-extend from 26 bits to 32 bits with 1's if the sign bit is 1
+    if (imm26 & 0b1000000000000000000000000) {
+        imm26 |= 0b11111111111111111111111111000000;
     }
     
-    // Multiply by 4 (as mentioned in the second image)
-    // "Its offset from the address of this instruction is encoded as 'imm26' times 4"
+    // Multiply by 4 to add '00' to the end of the immediate value
     int32_t offset = imm26 * 4;
     
-    // Update PC - the target is PC-relative
+    // Update the PC
     update_program_counter(offset);
 }
 
@@ -340,7 +324,7 @@ void decode_branch_to_register(uint32_t instruction) {
     // Get the register value
     int64_t target = CURRENT_STATE.REGS[rn];
 
-    // Update PC - the target is PC-relative
+    // Update the PC
     NEXT_STATE.PC = target;
 }
 
@@ -348,7 +332,7 @@ void decode_bcond(uint32_t instruction){
     // Get the condition
     uint32_t cond = (instruction >> 0) & 0b1111;
 
-    // Extract the 19-bit immediate from the instruction 
+    // Get imm19
     int32_t imm19 = (instruction >> 5) & 0b1111111111111111111;
      
     switch (cond)
@@ -379,16 +363,15 @@ void decode_bcond(uint32_t instruction){
 void decode_branch_conditional(int32_t imm19, int condition) {
     // Check if the condition is True
     if (condition) {
-        // Sign-extend from 19 bits to 32 bits
-        if (imm19 & 0b1000000000000000000) { // Check if bit 18 is set (negative number)
-            imm19 |= 0b11111111111111111111100000000000; // Extend with 1's
+        // Sign-extend from 26 bits to 32 bits with 1's if the sign bit is 1
+        if (imm19 & 0b1000000000000000000) {
+            imm19 |= 0b11111111111111111111100000000000;
         }
         
-        // Multiply by 4 (as mentioned in the second image)
-        // "Its offset from the address of this instruction is encoded as 'imm19' times 4"
+        // Multiply by 4 to add '00' to the end of the immediate value
         int32_t offset = imm19 * 4;
         
-        // Update PC - the target is PC-relative
+        // Update the PC
         update_program_counter(offset);
     } else {
         // Update the PC
@@ -397,21 +380,21 @@ void decode_branch_conditional(int32_t imm19, int condition) {
 }
 
 void decode_ls(uint32_t instruction) {
-    // Get the imms [15:10]
+    // Get the imms 
     uint32_t imms = (instruction >> 10) & 0b111111;
 
-    // Check the value of imms and call the appropriate function
+    // Check shift type
     if (imms == 0b111111) {
-        decode_lsr(instruction); // Logical Shift Right
+        decode_lsr(instruction); // LSR
     } else {
-        decode_lsl(instruction); // Logical Shift Left
+        decode_lsl(instruction); // LSL
     }
 }
 
 void decode_lsl(uint32_t instruction){
     // Get the register numbers
     uint32_t rd, rn;
-    get_operands_I(instruction, &rd, &rn);
+    get_registers_I(instruction, &rd, &rn);
 
     // Get the immr
     uint32_t immr = (instruction >> 16) & 0b111111;
@@ -432,7 +415,7 @@ void decode_lsl(uint32_t instruction){
 void decode_lsr(uint32_t instruction){
     // Get the register numbers
     uint32_t rd, rn;
-    get_operands_I(instruction, &rd, &rn);
+    get_registers_I(instruction, &rd, &rn);
 
     // Get the immr
     uint32_t immr = (instruction >> 16) & 0b111111;
@@ -462,10 +445,10 @@ void decode_stur(uint32_t instruction){
     // Get the address
     int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
-    // Escribir los 32 bits inferiores
-    mem_write_32(address, (uint32_t)(rt_value & 0xFFFFFFFF));
+    // Write the 32 bits lower
+    mem_write_32(address, (uint32_t)(rt_value & 0b1111111111111111111111111111111));
     
-    // Escribir los 32 bits superiores
+    // Write the 32 bits upper
     mem_write_32(address + 4, (uint32_t)(rt_value >> 32));
 
     // Update the PC
@@ -473,60 +456,60 @@ void decode_stur(uint32_t instruction){
 }
 
 void decode_sturb(uint32_t instruction){
-    // Obtener los registros
+    // Get the register numbers
     uint32_t rt, rn;
     int32_t imm9;
     get_operands_D(instruction, &rt, &rn, &imm9);
 
-    // Obtener el valor del registro Rt (solo los 8 bits inferiores)
-    uint8_t byte_value = (uint8_t)(CURRENT_STATE.REGS[rt] & 0xFF);
+    // Get the value of the lower 8 bits of the register
+    uint8_t byte_value = (uint8_t)(CURRENT_STATE.REGS[rt] & 0b11111111);
 
-    // Calcular la dirección
+    // Calculate the address
     int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
-    // Leer los 32 bits actuales de memoria
-    uint32_t word = mem_read_32(address & ~0b11); // Alinear dirección a 4 bytes
+    // Read the 32 bits from memory
+    uint32_t word = mem_read_32(address & ~0b11);
 
-    // Calcular la posición del byte dentro de la palabra
+    // Calculate the position of the byte within the word
     int byte_offset = address & 0b11;
 
-    // Reemplazar solo el byte correspondiente
-    word &= ~(0xFF << (byte_offset * 8));  // Limpiar el byte objetivo
-    word |= (byte_value << (byte_offset * 8)); // Escribir el nuevo byte
+    // Replace only the byte at the correct position by clearing it first and then setting the new value
+    word &= ~(0b11111111 << (byte_offset * 8)); 
+    word |= (byte_value << (byte_offset * 8)); 
 
-    // Escribir de vuelta los 32 bits modificados
+    // Write the modified word back to memory
     mem_write_32(address & ~0b11, word);
 
-    // Actualizar PC
+    // Update the PC
     update_program_counter(4);
 }
 
 void decode_sturh(uint32_t instruction){
-    // Obtener los registros
+    // Get the register numbers
     uint32_t rt, rn;
     int32_t imm9;
     get_operands_D(instruction, &rt, &rn, &imm9);
 
-    // Obtener el valor del registro Rt (solo los 16 bits inferiores)
-    uint16_t half_value = (uint16_t)(CURRENT_STATE.REGS[rt] & 0xFFFF);
+    // Get the value of the lower 16 bits of the register
+    uint16_t half_value = (uint16_t)(CURRENT_STATE.REGS[rt] & 0b1111111111111111);
 
-    // Calcular la dirección
+    // Calculate the address
     int64_t address = CURRENT_STATE.REGS[rn] + imm9;
 
-    // Leer los 32 bits actuales de memoria
-    uint32_t word = mem_read_32(address & ~0b11); // Alinear dirección a 4 bytes
+    // Read the 32 bits from memory
+    uint32_t word = mem_read_32(address & ~0b11);
 
-    // Calcular la posición del halfword dentro de la palabra
-    int half_offset = (address & 0b10) >> 1; // Puede ser 0 o 1
+    // Calculate the position of the halfword within the word
+    int half_offset = (address & 0b10) >> 1;
 
-    // Reemplazar solo los 16 bits correspondientes
-    word &= ~(0xFFFF << (half_offset * 16));  // Limpiar el halfword objetivo
-    word |= (half_value << (half_offset * 16)); // Escribir el nuevo halfword
+    // Replace only the halfword at the correct position by clearing it first and then setting the new value
+    word &= ~(0b1111111111111111 << (half_offset * 16));
+    word |= (half_value << (half_offset * 16));
 
-    // Escribir de vuelta los 32 bits modificados
+    // Write the modified word back to memory
     mem_write_32(address & ~0b11, word);
 
-    // Actualizar PC
+    // Update the PC
     update_program_counter(4);
 }
 
@@ -539,14 +522,14 @@ void decode_ldur(uint32_t instruction){
     // Get the address
     int64_t address = CURRENT_STATE.REGS[rn] + imm9;
     
-    // Para registros X (64 bits), necesitamos leer dos palabras de 32 bits
+    // Read the value from memory (64 bits)
     uint32_t value_low = mem_read_32(address);
     uint32_t value_high = mem_read_32(address + 4);
 
-    // Combinar los 64 bits
+    // Combine the two 32-bit values into a single 64-bit value
     uint64_t full_value = ((uint64_t)value_high << 32) | value_low;
 
-    // Actualizar el registro (64 bits)
+    // Update the register
     NEXT_STATE.REGS[rt] = full_value;
 
     // Update the PC
@@ -599,8 +582,7 @@ void decode_ldurh(uint32_t instruction){
 
 void decode_movz(uint32_t instruction){
     // Get the register number
-    uint32_t rd;
-    get_operands_IW(instruction, &rd);
+    uint32_t rd = (instruction >> 0) & 0b11111;
 
     // Get the immediate value
     int32_t imm16 = (instruction >> 5) & 0b1111111111111111;
@@ -636,7 +618,7 @@ void decode_add_extended(uint32_t instruction){
 void decode_add_immediate(uint32_t instruction) {
     // Get the register numbers
     uint32_t rd, rn;
-    get_operands_I(instruction, &rd, &rn);
+    get_registers_I(instruction, &rd, &rn);
     
     // Get the immediate value
     int32_t imm12 = (instruction >> 10) & 0b111111111111;
@@ -697,19 +679,21 @@ void decode_cbnz(uint32_t instruction){
     decode_branch_conditional(imm19, CURRENT_STATE.REGS[rt] != 0);
 }
 
-void decode_instruction(){
-
-    printf("Decoding instruction\n");
+void process_instruction()
+{
+    /* execute one instruction here. You should use CURRENT_STATE and modify
+     * values in NEXT_STATE. You can call mem_read_32() and mem_write_32() to
+     * access memory. 
+     * */
     uint32_t instruction = mem_read_32(CURRENT_STATE.PC);
-    printf("Instruction: 0x%X\n", instruction);
 
-    // Posibles opcodes con diferentes tamaños según el formato de instrucción
-    uint32_t opcode_11 = (instruction >> 21) & 0x7FF;  // 11 bits (R, I, D, IW)
-    uint32_t opcode_10  = (instruction >> 22) &  0x3FF; // 10 bits 
-    uint32_t opcode_8  = (instruction >> 24) & 0xFF;   // 8 bits (CB)
-    uint32_t opcode_6  = (instruction >> 26) & 0x3F;   // 6 bits (B)
+    // Possible opcodes for the instruction
+    uint32_t opcode_11 = (instruction >> 21) & 0b11111111111;
+    uint32_t opcode_10  = (instruction >> 22) &  0b1111111111;
+    uint32_t opcode_8  = (instruction >> 24) & 0b11111111;
+    uint32_t opcode_6  = (instruction >> 26) & 0b111111;
 
-    // Buscar el opcode en el conjunto de instrucciones
+    // Check for the instruction in the instruction set
     for (int i = 0; i < INSTRUCTION_SET_SIZE; i++) {
         if (INSTRUCTION_SET[i].opcode == opcode_11) { 
             printf("Match found with opcode: 0x%X\n", opcode_11);
