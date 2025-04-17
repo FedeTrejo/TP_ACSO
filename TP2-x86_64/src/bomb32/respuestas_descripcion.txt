@@ -1,0 +1,37 @@
+Carlos Federico Trejo
+ctrejo@udesa.edu.ar
+
+FASE 1
+En la fase 1 se compara el input con una cadena guardada en el registro rsi, usando la función strings_not_equal. Si la comparación da distinta, se llama a explode_bomb. Siguiendo la instrucción lea, encontré que rsi apuntaba al string
+"Al que es amigo, jamas lo dejen en la estacada Siempre el amigo mas fiel es una conduta honrada ".
+Al ingresar esa frase exacta, la comparación da cero y se desactiva la fase
+
+FASE 2
+En la fase 2 se leen dos números desde el input usando strtol, que luego se guardan en los registros r12d y r13d. Después se calcula el producto entre ellos y se verifica que no sea cero. Luego se suman y se compara el resultado con 34882 (cmp ebx, 0x8842), por lo que la condición es que los dos números sumen exactamente 34882. Si todo eso se cumple, se llama a la función misterio, que hace un xor esi, edi (es decir, a ^ b) y espera que el resultado sea negativo (verificado con js).
+
+Por eso, se necesitan dos números que multiplicados no den cero, sumen 34882, y cuyo xor tenga el bit de signo prendido. Se encontró que -1 y 34883 cumplen con todo eso:
+- -1 * 34883 = -34883 (distinto de cero)
+- -1 + 34883 = 34882
+- -1 ^ 34883 = -34884 (número negativo)
+
+Con esa entrada, la fase se desactiva correctamente.
+
+FASE 3
+En esta fase se espera un string y un número, ya que la función sscanf utiliza el formato "%s %d". El string ingresado es buscado dentro de un arreglo mediante una función llamada cuenta, que implementa una búsqueda binaria recursiva. En cada llamada se compara el input con una palabra del arreglo, y según el resultado, se continúa buscando hacia la izquierda o la derecha. El medio inicial siendo "engringarse".
+
+El número que devuelve cuenta depende de qué tan profundo llega la búsqueda antes de encontrar la palabra, y se acumula en el registro ebx. Al finalizar, se compara este valor con el número ingresado: si no coinciden, explota la bomba.
+En mi caso, la combinación "abacorar 10769" fue válida, ya que la función cuenta devolvió ese valor al buscar esa palabra, resultado de las llamadas recursivas acumuladas en la búsqueda binaria
+
+FASE 4
+En la fase 4 se ingresan un número y un resultado esperado. El número se reduce con un AND a sus 4 bits más bajos (input & 0xF), lo que limita su valor entre 0 y 15. A partir de ese índice, se recorre un arreglo (array.0) sumando valores hasta encontrar el número 15, acumulando la suma en un contador ecx. Si no se tardan exactamente 9 pasos o si el valor final acumulado no coincide con el número ingresado como segundo parámetro, explota la bomba.
+
+Probando combinaciones válidas, encontré que la entrada "10 62" desactiva correctamente la fase: comienza en la posición 10 del arreglo, llega al valor 15 en el noveno paso, y la suma acumulada da exactamente 62.
+
+FASE SECRETA
+Esta fase fue descubierta mediante el análisis detallado de la función phase_defused. Al observar que en algunos casos esta función llamaba a secret_phase, se decidió rastrear qué contenían los registros en esos momentos, lo que llevó a encontrar el punto de entrada de la fase secreta.
+
+En esta fase se solicita un único número entre 1 y 1000. Internamente, se llama a la función fun7, que recorre un árbol binario de búsqueda (BST) a partir de la raíz n1. La función retorna un valor que codifica la ruta tomada en la búsqueda: ir a la izquierda suma *2, y a la derecha *2 + 1. El programa espera que esta función devuelva exactamente 5.
+
+Como 5 en binario es 101, se interpretó como una ruta en el árbol: derecha → izquierda → derecha. Recorriendo manualmente el árbol desde la dirección 0x4f91f0 en GDB, y siguiendo esa ruta, se llegó a un nodo con el valor 47. Ese es el número que se debe ingresar para que fun7 retorne 5, desactivando correctamente la fase secreta.
+
+Input fase secreta : 47
