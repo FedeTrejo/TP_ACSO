@@ -10,7 +10,7 @@
 #define BLOCKS_PER_INDIRECT (DISKIMG_SECTOR_SIZE / sizeof(uint16_t))
 
 int inode_iget(struct unixfilesystem *fs, int inumber, struct inode *inp) {
-    if (inumber < 1) {
+    if (fs == NULL || inp == NULL || inumber < 1) {
         return -1;
     }
 
@@ -28,6 +28,10 @@ int inode_iget(struct unixfilesystem *fs, int inumber, struct inode *inp) {
 }
 
 int inode_indexlookup(struct unixfilesystem *fs, struct inode *inp, int blockNum) {
+    if (fs == NULL || inp == NULL || blockNum < 0) {
+        return -1;
+    }
+    
     // Archivos pequeños (sin ILARG): acceso directo
     if ((inp->i_mode & ILARG) == 0) {
         if (blockNum < 0 || blockNum >= 8) {
