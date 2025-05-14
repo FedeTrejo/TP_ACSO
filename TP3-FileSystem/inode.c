@@ -6,7 +6,7 @@
 #include "unixfilesystem.h"
 
 #define INODES_PER_SECTOR   (DISKIMG_SECTOR_SIZE / sizeof(struct inode))
-#define BLOCKS_PER_INDIRECT (DISKIMG_SECTOR_SIZE / sizeof(uint16_t))
+#define BLOCKS_PER_INDIRECT ((int)(DISKIMG_SECTOR_SIZE / sizeof(uint16_t)))
 
 /**
  * inode_iget:
