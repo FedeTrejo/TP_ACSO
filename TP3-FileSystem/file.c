@@ -8,7 +8,7 @@
 /**
  * file_getblock:
  *   - fs: sistema de archivos abierto
- *   - inumber: número de inodo (>= 1)
+ *   - inumber: número de inode (>= 1)
  *   - blockNum: bloque lógico dentro del archivo (>= 0)
  *   - buf: puntero al buffer donde se escribirá (tamaño ≥ DISKIMG_SECTOR_SIZE)
  *
@@ -27,13 +27,13 @@ int file_getblock(struct unixfilesystem *fs,
         return -1;
     }
 
-    /* 2) Traer el inodo */
+    /* 2) Traer el inode */
     struct inode in;
     if (inode_iget(fs, inumber, &in) < 0) {
         return -1;
     }
 
-    /* 3) Verificar que el inodo esté asignado */
+    /* 3) Verificar que el inode esté asignado */
     if ((in.i_mode & IALLOC) == 0) {
         return -1;
     }
