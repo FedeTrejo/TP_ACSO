@@ -1,71 +1,76 @@
 #include <stdio.h>
-#include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 #include "file.h"
 #include "inode.h"
 #include "diskimg.h"
-#include <string.h>  
 
-#define BLOCKS_PER_INDIRECT ((int)(DISKIMG_SECTOR_SIZE / sizeof(uint16_t)))
-
-int file_getblock(struct unixfilesystem *fs, int inumber, int blockNum, void *buf) {
-    struct inode in;
-    if (inode_iget(fs, inumber, &in) < 0) return -1;
-
-    int data_block = -1;
-
-    if ((in.i_mode & ILARG) == 0) {
-        // Bloques directos (hasta 8)
-        if (blockNum >= 0 && blockNum < 8) {
-            data_block = in.i_addr[blockNum];
-        }
-    } else if (blockNum < 7 * BLOCKS_PER_INDIRECT) {
-        // Acceso indirecto simple (i_addr[0]..i_addr[6])
-        int indir_index = blockNum / BLOCKS_PER_INDIRECT;
-        int entry_index = blockNum % BLOCKS_PER_INDIRECT;
-
-        int indir_sector = in.i_addr[indir_index];
-        if (indir_sector == 0) return 0;
-
-        uint16_t indir_block[BLOCKS_PER_INDIRECT];
-        if (diskimg_readsector(fs->dfd, indir_sector, indir_block) < 0) return -1;
-
-        data_block = indir_block[entry_index];
-    } else {
-        // Acceso doble indirecto (i_addr[7])
-        int relative = blockNum - 7 * BLOCKS_PER_INDIRECT;
-        int outer_index = relative / BLOCKS_PER_INDIRECT;
-        int inner_index = relative % BLOCKS_PER_INDIRECT;
-
-        int double_indir_sector = in.i_addr[7];
-        if (double_indir_sector == 0) return 0;
-
-        uint16_t outer_block[BLOCKS_PER_INDIRECT];
-        if (diskimg_readsector(fs->dfd, double_indir_sector, outer_block) < 0) return -1;
-
-        if (outer_index >= BLOCKS_PER_INDIRECT) return 0;
-        int inner_sector = outer_block[outer_index];
-        if (inner_sector == 0) return 0;
-
-        uint16_t inner_block[BLOCKS_PER_INDIRECT];
-        if (diskimg_readsector(fs->dfd, inner_sector, inner_block) < 0) return -1;
-
-        data_block = inner_block[inner_index];
+/**
+ * file_getblock:
+ *   - fs: sistema de archivos abierto
+ *   - inumber: número de inodo (>= 1)
+ *   - blockNum: bloque lógico dentro del archivo (>= 0)
+ *   - buf: puntero al buffer donde se escribirá (tamaño ≥ DISKIMG_SECTOR_SIZE)
+ *
+ * Devuelve:
+ *   - ≥1 número de bytes leídos (≤ DISKIMG_SECTOR_SIZE)
+ *   - 0  si blockNum está fuera del tamaño de archivo
+ *   - -1 en caso de error (puntero nulo, inode no asignado, lectura fallida, etc.)
+ */
+int file_getblock(struct unixfilesystem *fs,
+                  int inumber,
+                  int blockNum,
+                  void *buf)
+{
+    /* 1) Validaciones básicas */
+    if (fs == NULL || buf == NULL || inumber < 1 || blockNum < 0) {
+        return -1;
     }
 
-    if (data_block == 0) return 0;
+    /* 2) Traer el inodo */
+    struct inode in;
+    if (inode_iget(fs, inumber, &in) < 0) {
+        return -1;
+    }
 
-    char tmpbuf[DISKIMG_SECTOR_SIZE];
-    if (diskimg_readsector(fs->dfd, data_block, tmpbuf) < 0) return -1;
+    /* 3) Verificar que el inodo esté asignado */
+    if ((in.i_mode & IALLOC) == 0) {
+        return -1;
+    }
 
+    /* 4) Traducir bloque lógico a bloque físico */
+    int phys_block = inode_indexlookup(fs, &in, blockNum);
+    if (phys_block < 0) {
+        /* Bloque fuera de rango o no existe */
+        return -1;
+    }
+    if (phys_block == 0) {
+        /* Hueco sin asignar: se devuelve 0 bytes */
+        return 0;
+    }
+
+    /* 5) Leer el sector completo en buffer temporal */
+    unsigned char tmp[DISKIMG_SECTOR_SIZE];
+    if (diskimg_readsector(fs->dfd, phys_block, tmp) < 0) {
+        return -1;
+    }
+
+    /* 6) Calcular cuántos bytes del bloque son reales según el tamaño del archivo */
     int filesize = inode_getsize(&in);
-    int block_offset = blockNum * DISKIMG_SECTOR_SIZE;
-    int bytesRemaining = filesize - block_offset;
+    int offset   = blockNum * DISKIMG_SECTOR_SIZE;
 
-    if (bytesRemaining <= 0) return 0;
+    if (offset >= filesize) {
+        /* Más allá del final del archivo */
+        return 0;
+    }
 
-    int nbytes = (bytesRemaining < DISKIMG_SECTOR_SIZE) ? bytesRemaining : DISKIMG_SECTOR_SIZE;
-    memcpy(buf, tmpbuf, nbytes);
-    return nbytes;
+    int bytes_left = filesize - offset;
+    int to_copy    = (bytes_left < DISKIMG_SECTOR_SIZE
+                         ? bytes_left
+                         : DISKIMG_SECTOR_SIZE);
 
+    /* 7) Copiar al buffer de usuario */
+    memcpy(buf, tmp, to_copy);
+
+    return to_copy;
 }
