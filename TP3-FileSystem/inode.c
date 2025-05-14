@@ -11,10 +11,10 @@
 /**
  * inode_iget:
  *   - fs:  sistema de archivos abierto
- *   - inumber: número de inodo (>= 1)
+ *   - inumber: número de inode (>= 1)
  *   - inp: puntero a struct inode donde almacenar el resultado
  *
- * Lee el sector correspondiente al inodo y copia la entrada deseada.
+ * Lee el sector correspondiente al inode y copia la entrada deseada.
  * Devuelve 0 si tiene éxito o -1 en caso de error.
  */
 int inode_iget(struct unixfilesystem *fs,
@@ -26,11 +26,11 @@ int inode_iget(struct unixfilesystem *fs,
         return -1;
     }
 
-    /* Calcular sector que contiene el inodo */
+    /* Calcular sector que contiene el inode */
     int sector = INODE_START_SECTOR + (inumber - 1) / INODES_PER_SECTOR;
     struct inode inodes[INODES_PER_SECTOR];
 
-    /* Leer todos los inodos de ese sector */
+    /* Leer todos los inodes de ese sector */
     if (diskimg_readsector(fs->dfd, sector, inodes) < 0) {
         return -1;
     }
@@ -45,7 +45,7 @@ int inode_iget(struct unixfilesystem *fs,
 /**
  * inode_indexlookup:
  *   - fs:      sistema de archivos abierto
- *   - inp:     puntero al inodo ya cargado
+ *   - inp:     puntero al inode ya cargado
  *   - blockNum: índice lógico del bloque dentro del archivo (>= 0)
  *
  * Convierte un bloque lógico en un bloque físico de disco, soportando:
@@ -135,9 +135,9 @@ int inode_indexlookup(struct unixfilesystem *fs,
 
 /**
  * inode_getsize:
- *   - inp: puntero al inodo
+ *   - inp: puntero al inode
  *
- * Reconstruye el tamaño completo del archivo a partir de los campos del inodo.
+ * Reconstruye el tamaño completo del archivo a partir de los campos del inode.
  * Retorna el tamaño en bytes.
  */
 int inode_getsize(struct inode *inp)
