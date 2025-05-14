@@ -133,13 +133,6 @@ int inode_indexlookup(struct unixfilesystem *fs,
     return (data_block == 0) ? -1 : data_block;
 }
 
-/**
- * inode_getsize:
- *   - inp: puntero al inode
- *
- * Reconstruye el tamaño completo del archivo a partir de los campos del inode.
- * Retorna el tamaño en bytes.
- */
 int inode_getsize(struct inode *inp)
 {
     return ((inp->i_size0 << 16) | inp->i_size1);
