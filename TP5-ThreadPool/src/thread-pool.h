@@ -16,6 +16,11 @@
 #include <vector>      // for vector
 #include "Semaphore.h" // for Semaphore
 
+#include <stdexcept>            // std::runtime_error
+#include <deque>
+#include <condition_variable>  // for condition_variable
+#include <atomic>      
+
 using namespace std;
 
 
@@ -28,12 +33,12 @@ using namespace std;
  * (or condition variable) to signal when work is ready for the 
  * worker to process.
  */
-typedef struct worker {
-    thread ts;
-    function<void(void)> thunk;
-    /**
-     * Complete the definition of the worker_t struct here...
-     **/
+typedef struct worker { 
+    thread              ts;        // hilo del trabajador
+    function<void(void)> thunk;    // tarea asignada al trabajador
+    Semaphore           sem{0};    // semáforo para señal de nueva tarea o cierre
+    mutex               mtx;       // mutex para proteger acceso a thunk y available
+    bool                available; // indica si está libre para recibir tareas
 } worker_t;
 
 class ThreadPool {
@@ -65,15 +70,24 @@ class ThreadPool {
   * over the course of its lifetime.
   */
     ~ThreadPool();
-    
+
   private:
 
-    void worker(int id);
-    void dispatcher();
-    thread dt;                              // dispatcher thread handle
-    vector<worker_t> wts;                   // worker thread handles. you may want to change/remove this
-    bool done;                              // flag to indicate the pool is being destroyed
-    mutex queueLock;                        // mutex to protect the queue of tasks
+    void worker(int id); 
+    void dispatcher();  
+
+    thread                        dt;         // hilo despachador
+    vector<worker_t>              wts;        // vector de trabajadores
+
+    deque<function<void(void)>>  taskQueue; // cola de tareas pendientes
+    mutex                         queueLock_; // protege la cola de tareas
+    condition_variable            queueCv_;   // notifica al despachador de nuevas tareas o cierre
+
+    size_t                        tasksInFlight_{0}; // contador de tareas en vuelo
+    mutex                         waitLock_;  // protege tasksInFlight_
+    condition_variable            waitCv_;    // espera hasta que tasksInFlight_ sea cero
+
+    atomic<bool>                 done{false}; // indica si el pool ha sido detenido
 
     /* It is incomplete, there should be more private variables to manage the structures... 
     * *
